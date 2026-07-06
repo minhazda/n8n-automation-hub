@@ -1,0 +1,11 @@
+{
+  "name": "n8n-automation-hub",
+  "version": "0.1.0",
+  "description": "Versioned, documented, self-hostable n8n workflows with a structural validator.",
+  "type": "module",
+  "scripts": {
+    "test": "node validate-workflows.mjs",
+    "validate": "node validate-workflows.mjs"
+  },
+  "license": "MIT"
+}

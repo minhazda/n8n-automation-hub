@@ -1,0 +1,22 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Asia/Dhaka
+      # Where the error-handler workflow gets registered as the global handler:
+      # set this to the "Error Handler (retry + dead-letter)" workflow after import.
+      - N8N_DEFAULT_ERROR_WORKFLOW=
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Mount the exports so you can import them from inside the container:
+      #   docker compose exec n8n n8n import:workflow --separate --input=/workflows
+      - ./workflows:/workflows:ro
+
+volumes:
+  n8n_data:

@@ -1,0 +1,116 @@
+{
+  "name": "Lead Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Webhook: New Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "a1000000-0000-4000-8000-0000000000ab"
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "f1", "name": "fullName", "value": "={{ $json.body.name.trim() }}", "type": "string" },
+            { "id": "f2", "name": "email", "value": "={{ $json.body.email.toLowerCase().trim() }}", "type": "string" },
+            { "id": "f3", "name": "source", "value": "={{ $json.body.source || 'web-form' }}", "type": "string" },
+            { "id": "f4", "name": "receivedAt", "value": "={{ $now.toISO() }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Idempotency via workflow static data: the same email is only\n// forwarded once, so retried form posts never create duplicate leads.\nconst store = $getWorkflowStaticData('global');\nstore.seen = store.seen || {};\nconst email = $json.email;\nconst isDuplicate = Boolean(store.seen[email]);\nstore.seen[email] = true;\nreturn [{ json: { ...$json, isDuplicate } }];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Dedupe (static data)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.isDuplicate }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "New Lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://example.com/crm/leads",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"name\": $json.fullName, \"email\": $json.email, \"source\": $json.source } }}",
+        "options": { "retry": { "retry": { "maxTries": 3, "waitBetweenTries": 2000 } } }
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Append to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 200]
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Notify (swap in Slack)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1360, 200]
+    },
+    {
+      "parameters": {},
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Skip Duplicate",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1140, 400]
+    }
+  ],
+  "connections": {
+    "Webhook: New Lead": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize": { "main": [[{ "node": "Dedupe (static data)", "type": "main", "index": 0 }]] },
+    "Dedupe (static data)": { "main": [[{ "node": "New Lead?", "type": "main", "index": 0 }]] },
+    "New Lead?": {
+      "main": [
+        [{ "node": "Append to CRM", "type": "main", "index": 0 }],
+        [{ "node": "Skip Duplicate", "type": "main", "index": 0 }]
+      ]
+    },
+    "Append to CRM": { "main": [[{ "node": "Notify (swap in Slack)", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "portfolio" }]
+}

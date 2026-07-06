@@ -1,0 +1,110 @@
+{
+  "name": "Error Handler (retry + dead-letter)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b2000000-0000-4000-8000-000000000001",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Classify the failure and track how many times we've already retried\n// this execution's workflow, so transient errors get a bounded number of\n// retries and everything else goes straight to the dead-letter queue.\nconst e = $json;\nconst message = (e.execution?.error?.message || e.error?.message || '').toLowerCase();\nconst transient = ['timeout', 'econnreset', 'etimedout', '429', '503', 'temporarily'];\nconst isTransient = transient.some(t => message.includes(t));\nconst retryCount = Number(e.execution?.retryOf ? 1 : 0);\nconst maxRetries = 3;\nreturn [{ json: {\n  workflow: e.workflow?.name,\n  executionId: e.execution?.id,\n  message,\n  isTransient,\n  retryCount,\n  shouldRetry: isTransient && retryCount < maxRetries\n} }];"
+      },
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "name": "Classify Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.shouldRetry }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000003",
+      "name": "Retryable?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "b2000000-0000-4000-8000-000000000004",
+      "name": "Backoff",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [900, 200],
+      "webhookId": "b2000000-0000-4000-8000-0000000000cd"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://example.com/internal/requeue",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"executionId\": $json.executionId, \"workflow\": $json.workflow } }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000005",
+      "name": "Re-queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://example.com/internal/dead-letter",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"executionId\": $json.executionId, \"workflow\": $json.workflow, \"message\": $json.message } }}",
+        "options": {}
+      },
+      "id": "b2000000-0000-4000-8000-000000000006",
+      "name": "Dead-Letter Queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 420]
+    },
+    {
+      "parameters": {},
+      "id": "b2000000-0000-4000-8000-000000000007",
+      "name": "Alert On-Call (swap in Slack)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1120, 420]
+    }
+  ],
+  "connections": {
+    "Error Trigger": { "main": [[{ "node": "Classify Error", "type": "main", "index": 0 }]] },
+    "Classify Error": { "main": [[{ "node": "Retryable?", "type": "main", "index": 0 }]] },
+    "Retryable?": {
+      "main": [
+        [{ "node": "Backoff", "type": "main", "index": 0 }],
+        [{ "node": "Dead-Letter Queue", "type": "main", "index": 0 }]
+      ]
+    },
+    "Backoff": { "main": [[{ "node": "Re-queue", "type": "main", "index": 0 }]] },
+    "Dead-Letter Queue": { "main": [[{ "node": "Alert On-Call (swap in Slack)", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "portfolio" }]
+}
